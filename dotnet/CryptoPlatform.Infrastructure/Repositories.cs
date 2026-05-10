@@ -80,6 +80,52 @@ public class WalletRepository : IWalletRepository
 
     public Task<PlayerWallet?> GetByAddressAsync(string address, CancellationToken ct = default)
         => _db.PlayerWallets.FirstOrDefaultAsync(w => w.Address == address, ct);
+
+    public Task<PlayerWallet?> GetByPlayerCoinChainAsync(Guid playerId, string coin, string chain, CancellationToken ct = default)
+        => _db.PlayerWallets.FirstOrDefaultAsync(w => w.PlayerId == playerId && w.Coin == coin && w.Chain == chain, ct);
+
+    public async Task<IReadOnlyList<PlayerWallet>> GetByPlayerIdAsync(Guid playerId, CancellationToken ct = default)
+        => await _db.PlayerWallets
+            .Where(w => w.PlayerId == playerId)
+            .OrderBy(w => w.CreatedAt)
+            .ToListAsync(ct);
+}
+
+public class WalletKeyRepository : IWalletKeyRepository
+{
+    private readonly AppDbContext _db;
+    public WalletKeyRepository(AppDbContext db) => _db = db;
+
+    public async Task SaveAsync(Guid playerId, WalletEncryptedKeys keys, CancellationToken ct = default)
+    {
+        var entries = new[]
+        {
+            new WalletKey { Id = Guid.NewGuid(), PlayerId = playerId, ChainGroup = "EVM",    EncryptedPrivateKey = keys.Evm,    CreatedAt = DateTime.UtcNow },
+            new WalletKey { Id = Guid.NewGuid(), PlayerId = playerId, ChainGroup = "Tron",   EncryptedPrivateKey = keys.Tron,   CreatedAt = DateTime.UtcNow },
+            new WalletKey { Id = Guid.NewGuid(), PlayerId = playerId, ChainGroup = "Solana", EncryptedPrivateKey = keys.Solana, CreatedAt = DateTime.UtcNow },
+        };
+
+        var existingGroups = (await _db.WalletKeys
+            .Where(k => k.PlayerId == playerId)
+            .Select(k => k.ChainGroup)
+            .ToListAsync(ct)).ToHashSet();
+
+        var newKeys = entries.Where(k => !existingGroups.Contains(k.ChainGroup)).ToArray();
+        if (newKeys.Length == 0) return;
+
+        _db.WalletKeys.AddRange(newKeys);
+        try
+        {
+            await _db.SaveChangesAsync(ct);
+        }
+        catch (DbUpdateException ex) when (ex.InnerException is PostgresException pg && pg.SqlState == "23505")
+        {
+            // Duplicate — another concurrent handler already saved these keys; ignore.
+        }
+    }
+
+    public Task<WalletKey?> GetByPlayerAndChainGroupAsync(Guid playerId, string chainGroup, CancellationToken ct = default)
+        => _db.WalletKeys.FirstOrDefaultAsync(k => k.PlayerId == playerId && k.ChainGroup == chainGroup, ct);
 }
 
 public class BalanceRepository : IBalanceRepository
@@ -93,6 +139,11 @@ public class BalanceRepository : IBalanceRepository
             .FirstOrDefaultAsync(b => b.PlayerId == playerId && b.Coin == coin && b.Chain == chain, ct);
         return balance?.Amount ?? 0m;
     }
+
+    public async Task<IReadOnlyList<Balance>> GetAllAsync(Guid playerId, CancellationToken ct = default)
+        => await _db.Balances
+            .Where(b => b.PlayerId == playerId)
+            .ToListAsync(ct);
 
     public async Task<decimal> CreditAsync(Guid playerId, string coin, string chain, decimal amount, string txHash, CancellationToken ct = default)
     {
@@ -173,6 +224,9 @@ public class DepositRepository : IDepositRepository
     public Task<bool> ExistsAsync(string txHash, CancellationToken ct = default)
         => _db.Deposits.AnyAsync(d => d.TxHash == txHash, ct);
 
+    public Task<Deposit?> GetByTxHashAsync(string txHash, CancellationToken ct = default)
+        => _db.Deposits.FirstOrDefaultAsync(d => d.TxHash == txHash, ct);
+
     public async Task<Deposit> CreateAsync(Deposit deposit, CancellationToken ct = default)
     {
         _db.Deposits.Add(deposit);
@@ -189,6 +243,12 @@ public class DepositRepository : IDepositRepository
         if (status == DepositStatus.Credited)  deposit.CreditedAt  = DateTime.UtcNow;
         await _db.SaveChangesAsync(ct);
     }
+
+    public async Task<IReadOnlyList<Deposit>> GetByPlayerIdAsync(Guid playerId, CancellationToken ct = default)
+        => await _db.Deposits
+            .Where(d => d.PlayerId == playerId)
+            .OrderByDescending(d => d.DetectedAt)
+            .ToListAsync(ct);
 }
 
 public class WithdrawalRepository : IWithdrawalRepository
@@ -213,4 +273,10 @@ public class WithdrawalRepository : IWithdrawalRepository
         w.CompletedAt = status == WithdrawalStatus.Completed ? DateTime.UtcNow : w.CompletedAt;
         await _db.SaveChangesAsync(ct);
     }
+
+    public async Task<IReadOnlyList<Withdrawal>> GetByPlayerIdAsync(Guid playerId, CancellationToken ct = default)
+        => await _db.Withdrawals
+            .Where(w => w.PlayerId == playerId)
+            .OrderByDescending(w => w.RequestedAt)
+            .ToListAsync(ct);
 }

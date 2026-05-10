@@ -79,6 +79,27 @@ public class Withdrawal
     public DateTime? CompletedAt { get; set; }
 }
 
+public class WalletKey
+{
+    public Guid Id { get; set; }
+    public Guid PlayerId { get; set; }
+    public string ChainGroup { get; set; } = default!;           // EVM, Tron, Solana
+    public string EncryptedPrivateKey { get; set; } = default!;
+    public DateTime CreatedAt { get; set; }
+    public Player Player { get; set; } = default!;
+}
+
+public static class ChainGroups
+{
+    public static string FromChain(string chain) => chain switch
+    {
+        "BSC" or "POL" => "EVM",
+        "Tron"         => "Tron",
+        "Solana"       => "Solana",
+        _ => throw new InvalidOperationException($"Unknown chain: {chain}")
+    };
+}
+
 public enum LedgerEntryType { Deposit, Withdrawal, GameWin, GameLoss }
 public enum DepositStatus   { Detected, Confirmed, Swept, Credited }
 public enum WithdrawalStatus { Pending, Broadcasting, Completed, Failed }

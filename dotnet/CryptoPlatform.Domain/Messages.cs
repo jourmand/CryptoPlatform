@@ -20,10 +20,17 @@ public record ExecuteWithdrawalCommand(
 
 // ── Events (Node → .NET) ───────────────────────────────────────────
 
-/// Node finished creating wallets — .NET stores addresses in DB
+/// Node finished creating wallets — .NET stores addresses and encrypted keys in DB
 public record WalletsCreatedEvent(
     Guid   PlayerId,
-    WalletAddresses Addresses
+    WalletAddresses Addresses,
+    WalletEncryptedKeys EncryptedKeys
+);
+
+public record WalletEncryptedKeys(
+    string Evm,
+    string Tron,
+    string Solana
 );
 
 public record WalletAddresses(
@@ -68,4 +75,13 @@ public record WithdrawalCompletedEvent(
 public record WithdrawalFailedEvent(
     Guid   WithdrawalId,
     string Reason
+);
+
+/// .NET tells Node to sweep deposited funds from player wallet to central wallet
+public record SweepCommand(
+    Guid   PlayerId,
+    string Coin,
+    string Chain,
+    string FromAddress,
+    string EncryptedPrivateKey
 );

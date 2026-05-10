@@ -17,11 +17,20 @@ public interface IWalletRepository
 {
     Task SaveWalletsAsync(Guid playerId, WalletAddresses addresses, CancellationToken ct = default);
     Task<PlayerWallet?> GetByAddressAsync(string address, CancellationToken ct = default);
+    Task<PlayerWallet?> GetByPlayerCoinChainAsync(Guid playerId, string coin, string chain, CancellationToken ct = default);
+    Task<IReadOnlyList<PlayerWallet>> GetByPlayerIdAsync(Guid playerId, CancellationToken ct = default);
+}
+
+public interface IWalletKeyRepository
+{
+    Task SaveAsync(Guid playerId, WalletEncryptedKeys keys, CancellationToken ct = default);
+    Task<WalletKey?> GetByPlayerAndChainGroupAsync(Guid playerId, string chainGroup, CancellationToken ct = default);
 }
 
 public interface IBalanceRepository
 {
     Task<decimal> GetBalanceAsync(Guid playerId, string coin, string chain, CancellationToken ct = default);
+    Task<IReadOnlyList<Balance>> GetAllAsync(Guid playerId, CancellationToken ct = default);
     Task<decimal> CreditAsync(Guid playerId, string coin, string chain, decimal amount, string txHash, CancellationToken ct = default);
     Task<decimal> DebitAsync(Guid playerId, string coin, string chain, decimal amount, Guid withdrawalId, CancellationToken ct = default);
 }
@@ -29,14 +38,17 @@ public interface IBalanceRepository
 public interface IDepositRepository
 {
     Task<bool> ExistsAsync(string txHash, CancellationToken ct = default);
+    Task<Deposit?> GetByTxHashAsync(string txHash, CancellationToken ct = default);
     Task<Deposit> CreateAsync(Deposit deposit, CancellationToken ct = default);
     Task UpdateStatusAsync(string txHash, DepositStatus status, CancellationToken ct = default);
+    Task<IReadOnlyList<Deposit>> GetByPlayerIdAsync(Guid playerId, CancellationToken ct = default);
 }
 
 public interface IWithdrawalRepository
 {
     Task<Withdrawal> CreateAsync(Withdrawal withdrawal, CancellationToken ct = default);
     Task UpdateAsync(Guid id, WithdrawalStatus status, string? txHash = null, decimal? fee = null, CancellationToken ct = default);
+    Task<IReadOnlyList<Withdrawal>> GetByPlayerIdAsync(Guid playerId, CancellationToken ct = default);
 }
 
 public interface IMessagePublisher
@@ -75,6 +87,40 @@ public class RegisterPlayerHandler : IRequestHandler<RegisterPlayerCommand, Play
     }
 }
 
+// ── Handle Deposit Detected (from Node event) ──────────────────────
+
+public record RecordDepositDetectedCommand(DepositDetectedEvent Event) : IRequest;
+
+public class RecordDepositDetectedHandler : IRequestHandler<RecordDepositDetectedCommand>
+{
+    private readonly IDepositRepository _deposits;
+
+    public RecordDepositDetectedHandler(IDepositRepository deposits) => _deposits = deposits;
+
+    public async Task Handle(RecordDepositDetectedCommand request, CancellationToken ct)
+    {
+        var e = request.Event;
+
+        if (await _deposits.ExistsAsync(e.TxHash, ct))
+            return;
+
+        await _deposits.CreateAsync(new Deposit
+        {
+            Id            = Guid.NewGuid(),
+            PlayerId      = e.PlayerId,
+            Coin          = e.Coin,
+            Chain         = e.Chain,
+            TxHash        = e.TxHash,
+            FromAddress   = e.FromAddress,
+            ToAddress     = e.ToAddress,
+            Amount        = e.Amount,
+            Status        = DepositStatus.Detected,
+            Confirmations = e.Confirmations,
+            DetectedAt    = DateTime.UtcNow,
+        }, ct);
+    }
+}
+
 // ── Handle Deposit Confirmed (from Node event) ─────────────────────
 
 public record CreditDepositCommand(DepositConfirmedEvent Event) : IRequest;
@@ -83,20 +129,63 @@ public class CreditDepositHandler : IRequestHandler<CreditDepositCommand>
 {
     private readonly IDepositRepository _deposits;
     private readonly IBalanceRepository _balances;
+    private readonly IWalletRepository _wallets;
+    private readonly IWalletKeyRepository _walletKeys;
+    private readonly IMessagePublisher _publisher;
 
-    public CreditDepositHandler(IDepositRepository deposits, IBalanceRepository balances)
-        => (_deposits, _balances) = (deposits, balances);
+    public CreditDepositHandler(
+        IDepositRepository deposits,
+        IBalanceRepository balances,
+        IWalletRepository wallets,
+        IWalletKeyRepository walletKeys,
+        IMessagePublisher publisher)
+        => (_deposits, _balances, _wallets, _walletKeys, _publisher)
+            = (deposits, balances, wallets, walletKeys, publisher);
 
     public async Task Handle(CreditDepositCommand request, CancellationToken ct)
     {
         var e = request.Event;
 
-        // Idempotency check — may receive duplicate events
-        if (await _deposits.ExistsAsync(e.TxHash, ct))
+        // Idempotency — skip only if already credited, not just if the deposit record exists
+        var deposit = await _deposits.GetByTxHashAsync(e.TxHash, ct);
+        if (deposit?.Status == DepositStatus.Credited)
             return;
 
         await _balances.CreditAsync(e.PlayerId, e.Coin, e.Chain, e.Amount, e.TxHash, ct);
-        await _deposits.UpdateStatusAsync(e.TxHash, DepositStatus.Credited, ct);
+
+        if (deposit is null)
+        {
+            await _deposits.CreateAsync(new Deposit
+            {
+                Id         = Guid.NewGuid(),
+                PlayerId   = e.PlayerId,
+                Coin       = e.Coin,
+                Chain      = e.Chain,
+                TxHash     = e.TxHash,
+                ToAddress  = string.Empty,
+                Amount     = e.Amount,
+                Status     = DepositStatus.Credited,
+                DetectedAt = DateTime.UtcNow,
+                CreditedAt = DateTime.UtcNow,
+            }, ct);
+        }
+        else
+        {
+            await _deposits.UpdateStatusAsync(e.TxHash, DepositStatus.Credited, ct);
+        }
+
+        // Trigger sweep: look up the player's deposit wallet address and encrypted key
+        var wallet = await _wallets.GetByPlayerCoinChainAsync(e.PlayerId, e.Coin, e.Chain, ct);
+        if (wallet is not null)
+        {
+            var chainGroup = ChainGroups.FromChain(e.Chain);
+            var walletKey  = await _walletKeys.GetByPlayerAndChainGroupAsync(e.PlayerId, chainGroup, ct);
+            if (walletKey is not null)
+            {
+                await _publisher.PublishAsync("sweep.execute",
+                    new SweepCommand(e.PlayerId, e.Coin, e.Chain, wallet.Address, walletKey.EncryptedPrivateKey), ct);
+            }
+        }
     }
 }
 
@@ -176,4 +265,46 @@ public class FinalizeWithdrawalHandler : IRequestHandler<FinalizeWithdrawalComma
         await _withdrawals.UpdateAsync(
             e.WithdrawalId, WithdrawalStatus.Completed, e.TxHash, e.Fee, ct);
     }
+}
+
+// ── Read Queries ────────────────────────────────────────────────────
+
+public record GetPlayerWalletsQuery(Guid PlayerId) : IRequest<IReadOnlyList<PlayerWallet>>;
+
+public class GetPlayerWalletsHandler : IRequestHandler<GetPlayerWalletsQuery, IReadOnlyList<PlayerWallet>>
+{
+    private readonly IWalletRepository _wallets;
+    public GetPlayerWalletsHandler(IWalletRepository wallets) => _wallets = wallets;
+    public Task<IReadOnlyList<PlayerWallet>> Handle(GetPlayerWalletsQuery request, CancellationToken ct)
+        => _wallets.GetByPlayerIdAsync(request.PlayerId, ct);
+}
+
+public record GetPlayerBalancesQuery(Guid PlayerId) : IRequest<IReadOnlyList<Balance>>;
+
+public class GetPlayerBalancesHandler : IRequestHandler<GetPlayerBalancesQuery, IReadOnlyList<Balance>>
+{
+    private readonly IBalanceRepository _balances;
+    public GetPlayerBalancesHandler(IBalanceRepository balances) => _balances = balances;
+    public Task<IReadOnlyList<Balance>> Handle(GetPlayerBalancesQuery request, CancellationToken ct)
+        => _balances.GetAllAsync(request.PlayerId, ct);
+}
+
+public record GetPlayerDepositsQuery(Guid PlayerId) : IRequest<IReadOnlyList<Deposit>>;
+
+public class GetPlayerDepositsHandler : IRequestHandler<GetPlayerDepositsQuery, IReadOnlyList<Deposit>>
+{
+    private readonly IDepositRepository _deposits;
+    public GetPlayerDepositsHandler(IDepositRepository deposits) => _deposits = deposits;
+    public Task<IReadOnlyList<Deposit>> Handle(GetPlayerDepositsQuery request, CancellationToken ct)
+        => _deposits.GetByPlayerIdAsync(request.PlayerId, ct);
+}
+
+public record GetPlayerWithdrawalsQuery(Guid PlayerId) : IRequest<IReadOnlyList<Withdrawal>>;
+
+public class GetPlayerWithdrawalsHandler : IRequestHandler<GetPlayerWithdrawalsQuery, IReadOnlyList<Withdrawal>>
+{
+    private readonly IWithdrawalRepository _withdrawals;
+    public GetPlayerWithdrawalsHandler(IWithdrawalRepository withdrawals) => _withdrawals = withdrawals;
+    public Task<IReadOnlyList<Withdrawal>> Handle(GetPlayerWithdrawalsQuery request, CancellationToken ct)
+        => _withdrawals.GetByPlayerIdAsync(request.PlayerId, ct);
 }

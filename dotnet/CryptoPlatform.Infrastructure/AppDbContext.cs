@@ -7,12 +7,13 @@ public class AppDbContext : DbContext
 {
     public AppDbContext(DbContextOptions<AppDbContext> options) : base(options) { }
 
-    public DbSet<Player>      Players      => Set<Player>();
+    public DbSet<Player>       Players       => Set<Player>();
     public DbSet<PlayerWallet> PlayerWallets => Set<PlayerWallet>();
-    public DbSet<Balance>     Balances     => Set<Balance>();
-    public DbSet<LedgerEntry> LedgerEntries => Set<LedgerEntry>();
-    public DbSet<Deposit>     Deposits     => Set<Deposit>();
-    public DbSet<Withdrawal>  Withdrawals  => Set<Withdrawal>();
+    public DbSet<WalletKey>    WalletKeys    => Set<WalletKey>();
+    public DbSet<Balance>      Balances      => Set<Balance>();
+    public DbSet<LedgerEntry>  LedgerEntries => Set<LedgerEntry>();
+    public DbSet<Deposit>      Deposits      => Set<Deposit>();
+    public DbSet<Withdrawal>   Withdrawals   => Set<Withdrawal>();
 
     protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
     {
@@ -34,6 +35,12 @@ public class AppDbContext : DbContext
             e.HasIndex(x => x.Address).IsUnique();
             e.HasIndex(x => new { x.PlayerId, x.Coin, x.Chain }).IsUnique();
             e.HasOne(x => x.Player).WithMany(x => x.Wallets).HasForeignKey(x => x.PlayerId);
+        });
+
+        b.Entity<WalletKey>(e => {
+            e.HasKey(x => x.Id);
+            e.HasIndex(x => new { x.PlayerId, x.ChainGroup }).IsUnique();
+            e.HasOne(x => x.Player).WithMany().HasForeignKey(x => x.PlayerId);
         });
 
         b.Entity<Balance>(e => {
