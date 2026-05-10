@@ -1,0 +1,33 @@
+﻿################################################################################
+# This .gitignore file was automatically created by Microsoft(R) Visual Studio.
+################################################################################
+
+###############################
+# .NET / Visual Studio
+###############################
+
+# Build results
+**/bin/
+**/obj/
+**/out/
+**/Debug/
+**/Release/
+
+# Specific folder you mentioned
+dotnet/CryptoPlatform.API/bin/
+dotnet/CryptoPlatform.Domain/obj/
+
+# Visual Studio cache/options
+.vs/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+# Visual Studio Code
+.vscode/
+.history/
+
+# Rider / IntelliJ
+.idea/
+*.sln.iml
