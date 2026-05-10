@@ -1,0 +1,114 @@
+version: '3.9'
+
+services:
+
+  # ─── Infrastructure ───────────────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    container_name: crypto_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: cryptoplatform
+      POSTGRES_USER: cryptouser
+      POSTGRES_PASSWORD: cryptopass
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./docker/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U cryptouser -d cryptoplatform"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: crypto_redis
+    restart: unless-stopped
+    command: redis-server --requirepass redispass --appendonly yes
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "redispass", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  rabbitmq:
+    image: rabbitmq:3.13-management-alpine
+    container_name: crypto_rabbitmq
+    restart: unless-stopped
+    environment:
+      RABBITMQ_DEFAULT_USER: rabbit
+      RABBITMQ_DEFAULT_PASS: rabbitpass
+      RABBITMQ_DEFAULT_VHOST: crypto
+    ports:
+      - "5672:5672"    # AMQP
+      - "15672:15672"  # Management UI → http://localhost:15672
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+      - ./docker/rabbitmq/rabbitmq.conf:/etc/rabbitmq/rabbitmq.conf
+      - ./docker/rabbitmq/definitions.json:/etc/rabbitmq/definitions.json
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+
+  # ─── .NET Backend API ─────────────────────────────────────────────
+  api:
+    build:
+      context: ./dotnet
+      dockerfile: CryptoPlatform.API/Dockerfile
+    container_name: crypto_api
+    restart: unless-stopped
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      ConnectionStrings__Default: "Host=postgres;Port=5432;Database=cryptoplatform;Username=cryptouser;Password=cryptopass;Include Error Detail=true"
+      Jwt__SecretKey: ${JWT_SECRET_KEY}
+      Jwt__Issuer: CryptoPlatform
+      Jwt__Audience: CryptoPlatformClients
+      Redis__ConnectionString: "redis:6379,password=redispass"
+      RabbitMQ__Host: rabbitmq
+      RabbitMQ__VirtualHost: crypto
+      RabbitMQ__Username: rabbit
+      RabbitMQ__Password: rabbitpass
+    ports:
+      - "5000:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+
+  # ─── Node.js Blockchain Service ───────────────────────────────────
+  blockchain-service:
+    build:
+      context: ./node/blockchain-service
+      dockerfile: Dockerfile
+    container_name: crypto_blockchain
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      RABBITMQ_URL: amqp://rabbit:rabbitpass@rabbitmq:5672/crypto
+      REDIS_URL: redis://:redispass@redis:6379
+      TRON_API_URL: https://api.trongrid.io
+      TRON_API_KEY: ${TRON_API_KEY}
+      BSC_RPC_URL: ${BSC_RPC_URL}
+      SOLANA_RPC_URL: ${SOLANA_RPC_URL}
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY}
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+volumes:
+  postgres_data:
+  redis_data:
+  rabbitmq_data:

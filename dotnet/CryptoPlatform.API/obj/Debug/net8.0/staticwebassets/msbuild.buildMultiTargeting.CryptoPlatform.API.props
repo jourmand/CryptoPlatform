@@ -1,0 +1,3 @@
+﻿<Project>
+  <Import Project="..\build\CryptoPlatform.API.props" />
+</Project>

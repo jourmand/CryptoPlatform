@@ -1,0 +1,85 @@
+{
+  "users": [
+    {
+      "name": "rabbit",
+      "password": "rabbitpass",
+      "tags": "administrator"
+    }
+  ],
+  "vhosts": [{ "name": "crypto" }],
+  "permissions": [
+    {
+      "user": "rabbit",
+      "vhost": "crypto",
+      "configure": ".*",
+      "write": ".*",
+      "read": ".*"
+    }
+  ],
+  "exchanges": [
+    {
+      "name": "blockchain.events",
+      "vhost": "crypto",
+      "type": "topic",
+      "durable": true,
+      "auto_delete": false
+    },
+    {
+      "name": "platform.commands",
+      "vhost": "crypto",
+      "type": "direct",
+      "durable": true,
+      "auto_delete": false
+    }
+  ],
+  "queues": [
+    {
+      "name": "wallet.create",
+      "vhost": "crypto",
+      "durable": true,
+      "arguments": { "x-dead-letter-exchange": "blockchain.events", "x-dead-letter-routing-key": "wallet.create.failed" }
+    },
+    {
+      "name": "deposit.detected",
+      "vhost": "crypto",
+      "durable": true,
+      "arguments": { "x-dead-letter-exchange": "blockchain.events" }
+    },
+    {
+      "name": "deposit.confirmed",
+      "vhost": "crypto",
+      "durable": true
+    },
+    {
+      "name": "sweep.execute",
+      "vhost": "crypto",
+      "durable": true,
+      "arguments": { "x-dead-letter-exchange": "blockchain.events" }
+    },
+    {
+      "name": "withdrawal.execute",
+      "vhost": "crypto",
+      "durable": true,
+      "arguments": { "x-dead-letter-exchange": "blockchain.events" }
+    },
+    {
+      "name": "withdrawal.completed",
+      "vhost": "crypto",
+      "durable": true
+    },
+    {
+      "name": "wallet.created",
+      "vhost": "crypto",
+      "durable": true
+    }
+  ],
+  "bindings": [
+    { "source": "platform.commands", "vhost": "crypto", "destination": "wallet.create",     "destination_type": "queue", "routing_key": "wallet.create" },
+    { "source": "blockchain.events", "vhost": "crypto", "destination": "deposit.detected",  "destination_type": "queue", "routing_key": "deposit.detected" },
+    { "source": "blockchain.events", "vhost": "crypto", "destination": "deposit.confirmed", "destination_type": "queue", "routing_key": "deposit.confirmed" },
+    { "source": "platform.commands", "vhost": "crypto", "destination": "sweep.execute",     "destination_type": "queue", "routing_key": "sweep.execute" },
+    { "source": "platform.commands", "vhost": "crypto", "destination": "withdrawal.execute","destination_type": "queue", "routing_key": "withdrawal.execute" },
+    { "source": "blockchain.events", "vhost": "crypto", "destination": "withdrawal.completed","destination_type": "queue","routing_key": "withdrawal.completed" },
+    { "source": "blockchain.events", "vhost": "crypto", "destination": "wallet.created",       "destination_type": "queue","routing_key": "wallet.create" }
+  ]
+}

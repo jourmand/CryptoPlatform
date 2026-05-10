@@ -1,0 +1,12 @@
+{
+  "version": 2,
+  "dgSpecHash": "RW+xDaq9k9Q=",
+  "success": true,
+  "projectFilePath": "D:\\Train\\CryptoPlatform\\CryptoPlatform\\dotnet\\CryptoPlatform.Domain\\CryptoPlatform.Domain.csproj",
+  "expectedPackageFiles": [
+    "C:\\Users\\jourm\\.nuget\\packages\\microsoft.netcore.app.ref\\8.0.26\\microsoft.netcore.app.ref.8.0.26.nupkg.sha512",
+    "C:\\Users\\jourm\\.nuget\\packages\\microsoft.windowsdesktop.app.ref\\8.0.26\\microsoft.windowsdesktop.app.ref.8.0.26.nupkg.sha512",
+    "C:\\Users\\jourm\\.nuget\\packages\\microsoft.aspnetcore.app.ref\\8.0.26\\microsoft.aspnetcore.app.ref.8.0.26.nupkg.sha512"
+  ],
+  "logs": []
+}
