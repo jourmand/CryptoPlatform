@@ -13,7 +13,7 @@ namespace CryptoPlatform.Infrastructure.Migrations
         {
             migrationBuilder.CreateSequence<int>(
                 name: "player_index_seq",
-                startValue: 0L);
+                startValue: 1L);
 
             migrationBuilder.CreateTable(
                 name: "deposits",

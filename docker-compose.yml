@@ -15,7 +15,6 @@ services:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      - ./docker/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U cryptouser -d cryptoplatform"]
       interval: 10s
@@ -66,7 +65,7 @@ services:
     container_name: crypto_api
     restart: unless-stopped
     environment:
-      ASPNETCORE_ENVIRONMENT: Development
+      ASPNETCORE_ENVIRONMENT: Production
       ConnectionStrings__Default: "Host=postgres;Port=5432;Database=cryptoplatform;Username=cryptouser;Password=cryptopass;Include Error Detail=true"
       Jwt__SecretKey: ${JWT_SECRET_KEY}
       Jwt__Issuer: CryptoPlatform
@@ -100,8 +99,14 @@ services:
       TRON_API_URL: https://api.trongrid.io
       TRON_API_KEY: ${TRON_API_KEY}
       BSC_RPC_URL: ${BSC_RPC_URL}
+      POL_RPC_URL: ${POL_RPC_URL}
       SOLANA_RPC_URL: ${SOLANA_RPC_URL}
       ENCRYPTION_KEY: ${ENCRYPTION_KEY}
+      CENTRAL_KEY_EVM: ${CENTRAL_KEY_EVM}
+      CENTRAL_KEY_TRON: ${CENTRAL_KEY_TRON}
+      CENTRAL_WALLET_EVM: ${CENTRAL_WALLET_EVM}
+      CENTRAL_WALLET_TRON: ${CENTRAL_WALLET_TRON}
+      CENTRAL_WALLET_SOLANA: ${CENTRAL_WALLET_SOLANA}
     depends_on:
       rabbitmq:
         condition: service_healthy

@@ -41,7 +41,8 @@ export async function sweepFunds(req: SweepRequest): Promise<string> {
 
 async function sweepEVM(req: SweepRequest): Promise<string> {
   const privateKey = decrypt(req.encryptedPrivateKey);
-  const provider   = new ethers.JsonRpcProvider(process.env.BSC_RPC_URL!);
+  const rpcUrl     = req.chain === 'POL' ? process.env.POL_RPC_URL! : process.env.BSC_RPC_URL!;
+  const provider   = new ethers.JsonRpcProvider(rpcUrl);
   const signer     = new ethers.Wallet(privateKey, provider);
 
   const contractAddr = TOKEN_CONTRACTS[`${req.coin}.${req.chain}`];

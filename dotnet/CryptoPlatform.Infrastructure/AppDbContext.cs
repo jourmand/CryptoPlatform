@@ -22,7 +22,7 @@ public class AppDbContext : DbContext
 
     protected override void OnModelCreating(ModelBuilder b)
     {
-        b.HasSequence<int>("player_index_seq").StartsAt(0).IncrementsBy(1);
+        b.HasSequence<int>("player_index_seq").StartsAt(1).IncrementsBy(1);
 
         b.Entity<Player>(e => {
             e.HasKey(x => x.Id);
@@ -32,7 +32,7 @@ public class AppDbContext : DbContext
 
         b.Entity<PlayerWallet>(e => {
             e.HasKey(x => x.Id);
-            e.HasIndex(x => x.Address).IsUnique();
+            e.HasIndex(x => x.Address);
             e.HasIndex(x => new { x.PlayerId, x.Coin, x.Chain }).IsUnique();
             e.HasOne(x => x.Player).WithMany(x => x.Wallets).HasForeignKey(x => x.PlayerId);
         });

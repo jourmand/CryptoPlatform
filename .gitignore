@@ -12,10 +12,7 @@
 **/out/
 **/Debug/
 **/Release/
-
-# Specific folder you mentioned
-dotnet/CryptoPlatform.API/bin/
-dotnet/CryptoPlatform.Domain/obj/
+**/node_modules/
 
 # Visual Studio cache/options
 .vs/
@@ -31,3 +28,7 @@ dotnet/CryptoPlatform.Domain/obj/
 # Rider / IntelliJ
 .idea/
 *.sln.iml
+
+package-lock.json
+*.yarn.lock
+

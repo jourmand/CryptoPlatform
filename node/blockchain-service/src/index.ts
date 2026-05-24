@@ -1,3 +1,5 @@
+import './tracing'; // must be first — patches modules before they are loaded
+import Redis from 'ioredis';
 import winston from 'winston';
 import { connectRabbitMQ, subscribe, publish } from './messaging/rabbitmq';
 import { generateWallets } from './wallet/generator';
@@ -14,14 +16,59 @@ export const logger = winston.createLogger({
   transports: [new winston.transports.Console()],
 });
 
-// In-memory map: wallet address → playerId (loaded from DB via .NET on startup)
-// In production, back this with Redis for multi-instance support
+// In-memory map: wallet address → playerId
+// Backed by Redis so addresses survive service restarts.
 const watchedAddresses = new Map<string, string>();
 
+const REDIS_ADDRESS_KEY = 'watched_addresses';
+let redis: Redis;
+
+async function connectRedis(): Promise<void> {
+  redis = new Redis(process.env.REDIS_URL!);
+  redis.on('error', (err) => logger.error('Redis error', { err }));
+  await redis.ping();
+  logger.info('Redis connected');
+}
+
+async function loadWatchedAddresses(): Promise<void> {
+  const data = await redis.hgetall(REDIS_ADDRESS_KEY);
+  for (const [address, playerId] of Object.entries(data)) {
+    watchedAddresses.set(address, playerId);
+  }
+  logger.info(`Restored ${watchedAddresses.size} watched addresses from Redis`);
+}
+
+async function persistAddress(address: string, playerId: string): Promise<void> {
+  watchedAddresses.set(address, playerId);
+  await redis.hset(REDIS_ADDRESS_KEY, address, playerId);
+}
+
+function validateRequiredEnvVars(): void {
+  const required = [
+    'RABBITMQ_URL',
+    'REDIS_URL',
+    'ENCRYPTION_KEY',
+    'CENTRAL_KEY_EVM',
+    'CENTRAL_KEY_TRON',
+    'CENTRAL_WALLET_EVM',
+    'CENTRAL_WALLET_TRON',
+    'CENTRAL_WALLET_SOLANA',
+  ];
+  const missing = required.filter(key => !process.env[key]);
+  if (missing.length > 0) {
+    throw new Error(`Missing required environment variables: ${missing.join(', ')}`);
+  }
+}
+
 async function main() {
+  validateRequiredEnvVars();
   logger.info('Blockchain service starting...');
 
+  await connectRedis();
   await connectRabbitMQ();
+
+  // Restore watched addresses before starting listeners so existing wallets are monitored
+  await loadWatchedAddresses();
 
   // ── Listen for commands from .NET ──────────────────────────────
 
@@ -30,13 +77,18 @@ async function main() {
     logger.info('Creating wallets', { playerId: msg.PlayerId });
     const wallets = await generateWallets(msg.PlayerId, msg.PlayerIndex);
 
-    // Register all addresses for listening.
-    // Tron addresses (Base58, start with 'T') must keep original case; EVM/Solana are lowercased.
-    const addrs = wallets.addresses;
+    // Persist all addresses to Redis and in-memory map
+    const addrs     = wallets.addresses;
     const tronAddrs = [addrs.usdtTron, addrs.trxTron];
     const otherAddrs = [addrs.usdtSolana, addrs.usdtBsc, addrs.usdcSolana, addrs.usdcBsc, addrs.polPol];
-    tronAddrs.forEach(addr => watchedAddresses.set(addr, msg.PlayerId));
-    otherAddrs.forEach(addr => watchedAddresses.set(addr.toLowerCase(), msg.PlayerId));
+
+    for (const addr of tronAddrs)  await persistAddress(addr, msg.PlayerId);
+    for (const addr of otherAddrs) await persistAddress(addr.toLowerCase(), msg.PlayerId);
+
+    // Subscribe new Solana ATAs immediately so we don't miss deposits
+    if (addSolanaWatch) {
+      addSolanaWatch(addrs.usdtSolana, msg.PlayerId);
+    }
 
     // Send addresses + encrypted keys back to .NET
     await publish('blockchain.events', 'wallet.create', {
@@ -54,16 +106,16 @@ async function main() {
     });
   });
 
-  // 2. Execute sweep when .NET confirms deposit
+  // 2. Execute sweep when .NET sends the command after crediting a deposit
   await subscribe('sweep.execute', async (msg: any) => {
-    logger.info('Sweeping funds', { playerId: msg.playerId, coin: msg.coin });
+    logger.info('Sweeping funds', { playerId: msg.PlayerId, coin: msg.Coin });
     try {
       const txHash = await sweepFunds({
-        playerId:            msg.playerId,
-        coin:                msg.coin,
-        chain:               msg.chain,
-        fromAddress:         msg.fromAddress,
-        encryptedPrivateKey: msg.encryptedPrivateKey,
+        playerId:            msg.PlayerId,
+        coin:                msg.Coin,
+        chain:               msg.Chain,
+        fromAddress:         msg.FromAddress,
+        encryptedPrivateKey: msg.EncryptedPrivateKey,
       });
       logger.info('Sweep successful', { txHash });
     } catch (err) {
@@ -103,6 +155,13 @@ async function main() {
     logger.info('BSC_RPC_URL not set — BSC listener skipped');
   }
 
+  if (process.env.POL_RPC_URL) {
+    const polWss = process.env.POL_RPC_URL.replace(/^https/, 'wss').replace(/^http/, 'ws');
+    await startEvmListener('POL', polWss, watchedAddresses);
+  } else {
+    logger.info('POL_RPC_URL not set — POL listener skipped');
+  }
+
   if (process.env.TRON_API_URL || process.env.TRON_API_KEY) {
     await startTronListener(watchedAddresses);
   } else {
@@ -110,13 +169,16 @@ async function main() {
   }
 
   if (process.env.SOLANA_RPC_URL) {
-    await startSolanaListener(watchedAddresses);
+    addSolanaWatch = await startSolanaListener(watchedAddresses);
   } else {
     logger.info('SOLANA_RPC_URL not set — Solana listener skipped');
   }
 
   logger.info('Blockchain service ready — listening for deposits and commands');
 }
+
+// Populated by startSolanaListener; used by wallet.create handler to subscribe new wallets
+let addSolanaWatch: ((address: string, playerId: string) => void) | null = null;
 
 main().catch(err => {
   const message = err instanceof Error ? err.message : String(err);

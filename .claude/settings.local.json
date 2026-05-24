@@ -1,7 +1,22 @@
 {
   "permissions": {
     "allow": [
-      "Bash(dotnet build *)"
+      "Bash(dotnet build *)",
+      "Bash(node_modules\\\\.bin\\\\tsc --noEmit)",
+      "Bash(./node_modules/.bin/tsc --noEmit)",
+      "Bash(dotnet ef *)",
+      "Bash(dotnet add *)",
+      "Bash(dotnet test *)",
+      "Bash(docker compose *)",
+      "Bash(ConnectionStrings__Default=\"Host=localhost;Port=5432;Database=cryptoplatform;Username=cryptouser;Password=cryptopass\" RabbitMQ__Host=localhost RabbitMQ__VirtualHost=crypto RabbitMQ__Username=rabbit RabbitMQ__Password=rabbitpass Redis__ConnectionString=\"localhost:6379,password=redispass\" ASPNETCORE_ENVIRONMENT=Development dotnet run --project CryptoPlatform.API --urls http://localhost:5000)",
+      "Bash(echo \"API PID: $!\")",
+      "PowerShell($env:ConnectionStrings__Default=\"Host=localhost;Port=5432;Database=cryptoplatform;Username=cryptouser;Password=cryptopass;Include Error Detail=true\"; $env:Jwt__SecretKey=\"dev-secret-key-at-least-32-chars-long!\"; $env:Jwt__Issuer=\"CryptoPlatform\"; $env:Jwt__Audience=\"CryptoPlatformClients\"; $env:Redis__ConnectionString=\"localhost:6379,password=redispass\"; $env:RabbitMQ__Host=\"localhost\"; $env:RabbitMQ__VirtualHost=\"crypto\"; $env:RabbitMQ__Username=\"rabbit\"; $env:RabbitMQ__Password=\"rabbitpass\"; Set-Location \"d:\\\\Train\\\\CryptoPlatform\\\\CryptoPlatform\\\\dotnet\"; dotnet run --project CryptoPlatform.API --urls http://localhost:5000 2>&1)",
+      "Bash(curl -s -X POST http://localhost:5000/api/players -H 'Content-Type: application/json' -d '{\"username\":\"testplayer\",\"email\":\"test@example.com\"}')",
+      "Bash(python -m json.tool)",
+      "Bash(curl -s -X POST http://localhost:5000/api/players -H \"Content-Type: application/json\" -d '{\"username\":\"testplayer\",\"email\":\"test@example.com\"}')",
+      "PowerShell(docker exec crypto_postgres psql -U cryptouser -d cryptoplatform -c \"SELECT coin, chain, address FROM player_wallets WHERE player_id = 'ac876350-5644-40a1-957e-4de1f9012a34';\")",
+      "Bash(curl -s http://localhost:5000/health)",
+      "PowerShell(docker exec crypto_postgres psql -U cryptouser -d cryptoplatform -c \"SELECT coin, chain, address FROM player_wallets WHERE player_id = '4de572a6-9771-44b8-8b9c-c4231674f8f2' ORDER BY coin, chain;\")"
     ]
   }
 }
